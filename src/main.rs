@@ -1,3 +1,4 @@
+mod clicker;
 mod groups;
 
 fn main() {
