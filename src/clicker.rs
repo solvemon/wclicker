@@ -13,7 +13,7 @@ pub fn run(clicking: Arc<AtomicBool>, delay_ms: Arc<AtomicU64>) {
     keys.insert(Key::BTN_LEFT);
 
     let mut device = VirtualDeviceBuilder::new()
-        .expect("failed to open /dev/uinput — are you in the 'input' group?")
+        .expect("failed to open /dev/uinput — are you in the 'uinput' group?")
         .name("wclicker-virtual-mouse")
         .input_id(InputId::new(BusType::BUS_USB, 0x1234, 0x5678, 1))
         .with_keys(&keys)
@@ -23,7 +23,7 @@ pub fn run(clicking: Arc<AtomicBool>, delay_ms: Arc<AtomicU64>) {
 
     loop {
         if clicking.load(Ordering::Relaxed) {
-            let delay = Duration::from_millis(delay_ms.load(Ordering::Relaxed));
+            let delay = Duration::from_millis(delay_ms.load(Ordering::Relaxed).max(1));
 
             // Press
             let press = InputEvent::new(EventType::KEY, Key::BTN_LEFT.code(), 1);
