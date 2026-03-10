@@ -71,14 +71,16 @@ fn listen(
 
             let key = Key::new(event.code());
 
-            if rebinding.load(Ordering::Relaxed) {
+            if rebinding
+                .compare_exchange(true, false, Ordering::AcqRel, Ordering::Relaxed)
+                .is_ok()
+            {
                 let mut nk = new_key.lock().unwrap();
                 *nk = Some(key);
-                rebinding.store(false, Ordering::Relaxed);
             } else {
                 let hk = hotkey.lock().unwrap();
                 if key == *hk {
-                    clicking.fetch_xor(true, Ordering::Relaxed);
+                    clicking.fetch_xor(true, Ordering::AcqRel);
                 }
             }
         }

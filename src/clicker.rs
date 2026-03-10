@@ -22,7 +22,7 @@ pub fn run(clicking: Arc<AtomicBool>, delay_ms: Arc<AtomicU64>) {
         .expect("failed to build virtual device");
 
     loop {
-        if clicking.load(Ordering::Relaxed) {
+        if clicking.load(Ordering::Acquire) {
             let delay = Duration::from_millis(delay_ms.load(Ordering::Relaxed).max(1));
 
             // Press
