@@ -7,14 +7,14 @@ use std::sync::{
 
 pub struct WclickerApp {
     // Shared state
-    pub clicking: Arc<AtomicBool>,
-    pub delay_ms: Arc<AtomicU64>,
-    pub hotkey: Arc<Mutex<Key>>,
-    pub rebinding: Arc<AtomicBool>,
-    pub new_key: Arc<Mutex<Option<Key>>>,
+    clicking: Arc<AtomicBool>,
+    delay_ms: Arc<AtomicU64>,
+    hotkey: Arc<Mutex<Key>>,
+    rebinding: Arc<AtomicBool>,
+    new_key: Arc<Mutex<Option<Key>>>,
 
     // Local UI state
-    pub missing_groups: Vec<String>,
+    missing_groups: Vec<String>,
     delay_input: String,
 }
 
@@ -44,8 +44,8 @@ impl eframe::App for WclickerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Check if a rebind completed
         {
-            let mut nk = self.new_key.lock().unwrap();
-            if let Some(key) = nk.take() {
+            let new_key = self.new_key.lock().unwrap().take();
+            if let Some(key) = new_key {
                 *self.hotkey.lock().unwrap() = key;
             }
         }
