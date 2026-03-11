@@ -2,6 +2,8 @@
 name = "wclicker"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "A simple, lightweight autoclicker for Linux"
 
 [[bin]]
 name = "wclicker"
