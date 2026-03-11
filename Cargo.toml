@@ -11,6 +11,8 @@ path = "src/main.rs"
 eframe = "0.29"
 egui = "0.29"
 evdev = "0.12"
+serde = { version = "1.0.228", features = ["derive"] }
+toml = "1.0.6"
 
 [profile.release]
 opt-level = 3
