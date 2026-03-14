@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::{ClickMode, Config};
 use crate::state::SharedState;
 use egui::{
     Align, Button, Color32, FontId, Frame, Layout, Margin, RichText, Rounding, Stroke, TextEdit,
@@ -35,7 +35,7 @@ impl WclickerApp {
         let cfg = Config {
             delay_ms: self.state.delay_ms.load(Ordering::Relaxed),
             hotkey: self.state.hotkey.lock().unwrap().code(),
-            mode: Default::default(),
+            mode: ClickMode::from_u8(self.state.mode.load(Ordering::Relaxed)),
         };
         cfg.save();
     }
@@ -86,8 +86,11 @@ impl eframe::App for WclickerApp {
                 let is_clicking = self.state.clicking.load(Ordering::Relaxed);
 
                 // Status banner
+                let mode = ClickMode::from_u8(self.state.mode.load(Ordering::Relaxed));
                 let (status_color, status_text) = if is_clicking {
                     (GREEN, "CLICKING")
+                } else if mode == ClickMode::Hold {
+                    (ACCENT, "READY")
                 } else {
                     (RED, "STOPPED")
                 };
@@ -157,6 +160,88 @@ impl eframe::App for WclickerApp {
                         ui.separator();
                         ui.add_space(8.0);
 
+                        // Mode row
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new("Mode")
+                                    .color(Color32::LIGHT_GRAY)
+                                    .size(13.0),
+                            );
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                let current = ClickMode::from_u8(
+                                    self.state.mode.load(Ordering::Relaxed),
+                                );
+
+                                let hold_btn = Button::new(
+                                    RichText::new("Hold")
+                                        .color(if current == ClickMode::Hold {
+                                            ACCENT
+                                        } else {
+                                            Color32::GRAY
+                                        })
+                                        .size(13.0),
+                                )
+                                .fill(if current == ClickMode::Hold {
+                                    ACCENT.linear_multiply(0.15)
+                                } else {
+                                    PANEL_BG
+                                })
+                                .stroke(Stroke::new(
+                                    1.0,
+                                    if current == ClickMode::Hold {
+                                        ACCENT.linear_multiply(0.6)
+                                    } else {
+                                        ACCENT.linear_multiply(0.2)
+                                    },
+                                ))
+                                .rounding(Rounding::same(4.0));
+
+                                let toggle_btn = Button::new(
+                                    RichText::new("Toggle")
+                                        .color(if current == ClickMode::Toggle {
+                                            ACCENT
+                                        } else {
+                                            Color32::GRAY
+                                        })
+                                        .size(13.0),
+                                )
+                                .fill(if current == ClickMode::Toggle {
+                                    ACCENT.linear_multiply(0.15)
+                                } else {
+                                    PANEL_BG
+                                })
+                                .stroke(Stroke::new(
+                                    1.0,
+                                    if current == ClickMode::Toggle {
+                                        ACCENT.linear_multiply(0.6)
+                                    } else {
+                                        ACCENT.linear_multiply(0.2)
+                                    },
+                                ))
+                                .rounding(Rounding::same(4.0));
+
+                                // Right-to-left layout: add Hold first (rightmost), then Toggle
+                                if ui.add(hold_btn).clicked() && current != ClickMode::Hold {
+                                    self.state
+                                        .mode
+                                        .store(ClickMode::Hold.as_u8(), Ordering::Relaxed);
+                                    self.state.clicking.store(false, Ordering::Relaxed);
+                                    self.save_config();
+                                }
+                                if ui.add(toggle_btn).clicked() && current != ClickMode::Toggle {
+                                    self.state
+                                        .mode
+                                        .store(ClickMode::Toggle.as_u8(), Ordering::Relaxed);
+                                    self.state.clicking.store(false, Ordering::Relaxed);
+                                    self.save_config();
+                                }
+                            });
+                        });
+
+                        ui.add_space(8.0);
+                        ui.separator();
+                        ui.add_space(8.0);
+
                         // Delay row
                         ui.horizontal(|ui| {
                             ui.label(
@@ -191,28 +276,32 @@ impl eframe::App for WclickerApp {
 
                 ui.add_space(12.0);
 
-                // Toggle button
-                ui.vertical_centered(|ui| {
-                    let (btn_label, btn_color) = if is_clicking {
-                        ("Stop", RED)
-                    } else {
-                        ("Start", GREEN)
-                    };
-                    let btn = Button::new(
-                        RichText::new(btn_label)
-                            .size(16.0)
-                            .strong()
-                            .color(Color32::WHITE),
-                    )
-                    .fill(btn_color.linear_multiply(0.8))
-                    .stroke(Stroke::NONE)
-                    .rounding(Rounding::same(6.0))
-                    .min_size(Vec2::new(ui.available_width(), 36.0));
+                // Toggle button (only in Toggle mode)
+                if ClickMode::from_u8(self.state.mode.load(Ordering::Relaxed))
+                    == ClickMode::Toggle
+                {
+                    ui.vertical_centered(|ui| {
+                        let (btn_label, btn_color) = if is_clicking {
+                            ("Stop", RED)
+                        } else {
+                            ("Start", GREEN)
+                        };
+                        let btn = Button::new(
+                            RichText::new(btn_label)
+                                .size(16.0)
+                                .strong()
+                                .color(Color32::WHITE),
+                        )
+                        .fill(btn_color.linear_multiply(0.8))
+                        .stroke(Stroke::NONE)
+                        .rounding(Rounding::same(6.0))
+                        .min_size(Vec2::new(ui.available_width(), 36.0));
 
-                    if ui.add(btn).clicked() {
-                        self.state.clicking.fetch_xor(true, Ordering::AcqRel);
-                    }
-                });
+                        if ui.add(btn).clicked() {
+                            self.state.clicking.fetch_xor(true, Ordering::AcqRel);
+                        }
+                    });
+                }
             });
 
         // Repaint continuously so status reflects hotkey changes promptly
