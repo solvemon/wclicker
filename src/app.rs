@@ -83,13 +83,20 @@ impl eframe::App for WclickerApp {
                 }
 
                 // --- Normal UI ---
-                let is_clicking = self.state.clicking.load(Ordering::Relaxed);
+                let is_active = self.state.active.load(Ordering::Relaxed);
+                let mode = ClickMode::from_u8(self.state.mode.load(Ordering::Relaxed));
+                let is_mouse_held = self.state.mouse_held.load(Ordering::Relaxed);
+
+                let is_clicking = is_active
+                    && match mode {
+                        ClickMode::Auto => true,
+                        ClickMode::Hold => is_mouse_held,
+                    };
 
                 // Status banner
-                let mode = ClickMode::from_u8(self.state.mode.load(Ordering::Relaxed));
                 let (status_color, status_text) = if is_clicking {
                     (GREEN, "CLICKING")
-                } else if mode == ClickMode::Hold {
+                } else if is_active && mode == ClickMode::Hold {
                     (ACCENT, "READY")
                 } else {
                     (RED, "STOPPED")
@@ -168,27 +175,23 @@ impl eframe::App for WclickerApp {
                                     .size(13.0),
                             );
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                let current = ClickMode::from_u8(
-                                    self.state.mode.load(Ordering::Relaxed),
-                                );
-
                                 let hold_btn = Button::new(
                                     RichText::new("Hold")
-                                        .color(if current == ClickMode::Hold {
+                                        .color(if mode == ClickMode::Hold {
                                             ACCENT
                                         } else {
                                             Color32::GRAY
                                         })
                                         .size(13.0),
                                 )
-                                .fill(if current == ClickMode::Hold {
+                                .fill(if mode == ClickMode::Hold {
                                     ACCENT.linear_multiply(0.15)
                                 } else {
                                     PANEL_BG
                                 })
                                 .stroke(Stroke::new(
                                     1.0,
-                                    if current == ClickMode::Hold {
+                                    if mode == ClickMode::Hold {
                                         ACCENT.linear_multiply(0.6)
                                     } else {
                                         ACCENT.linear_multiply(0.2)
@@ -196,23 +199,23 @@ impl eframe::App for WclickerApp {
                                 ))
                                 .rounding(Rounding::same(4.0));
 
-                                let toggle_btn = Button::new(
-                                    RichText::new("Toggle")
-                                        .color(if current == ClickMode::Toggle {
+                                let auto_btn = Button::new(
+                                    RichText::new("Auto")
+                                        .color(if mode == ClickMode::Auto {
                                             ACCENT
                                         } else {
                                             Color32::GRAY
                                         })
                                         .size(13.0),
                                 )
-                                .fill(if current == ClickMode::Toggle {
+                                .fill(if mode == ClickMode::Auto {
                                     ACCENT.linear_multiply(0.15)
                                 } else {
                                     PANEL_BG
                                 })
                                 .stroke(Stroke::new(
                                     1.0,
-                                    if current == ClickMode::Toggle {
+                                    if mode == ClickMode::Auto {
                                         ACCENT.linear_multiply(0.6)
                                     } else {
                                         ACCENT.linear_multiply(0.2)
@@ -220,19 +223,19 @@ impl eframe::App for WclickerApp {
                                 ))
                                 .rounding(Rounding::same(4.0));
 
-                                // Right-to-left layout: add Hold first (rightmost), then Toggle
-                                if ui.add(hold_btn).clicked() && current != ClickMode::Hold {
+                                // Right-to-left layout: Hold first (rightmost), then Auto
+                                if ui.add(hold_btn).clicked() && mode != ClickMode::Hold {
                                     self.state
                                         .mode
                                         .store(ClickMode::Hold.as_u8(), Ordering::Relaxed);
-                                    self.state.clicking.store(false, Ordering::Relaxed);
+                                    self.state.active.store(false, Ordering::Relaxed);
                                     self.save_config();
                                 }
-                                if ui.add(toggle_btn).clicked() && current != ClickMode::Toggle {
+                                if ui.add(auto_btn).clicked() && mode != ClickMode::Auto {
                                     self.state
                                         .mode
-                                        .store(ClickMode::Toggle.as_u8(), Ordering::Relaxed);
-                                    self.state.clicking.store(false, Ordering::Relaxed);
+                                        .store(ClickMode::Auto.as_u8(), Ordering::Relaxed);
+                                    self.state.active.store(false, Ordering::Relaxed);
                                     self.save_config();
                                 }
                             });
@@ -276,32 +279,28 @@ impl eframe::App for WclickerApp {
 
                 ui.add_space(12.0);
 
-                // Toggle button (only in Toggle mode)
-                if ClickMode::from_u8(self.state.mode.load(Ordering::Relaxed))
-                    == ClickMode::Toggle
-                {
-                    ui.vertical_centered(|ui| {
-                        let (btn_label, btn_color) = if is_clicking {
-                            ("Stop", RED)
-                        } else {
-                            ("Start", GREEN)
-                        };
-                        let btn = Button::new(
-                            RichText::new(btn_label)
-                                .size(16.0)
-                                .strong()
-                                .color(Color32::WHITE),
-                        )
-                        .fill(btn_color.linear_multiply(0.8))
-                        .stroke(Stroke::NONE)
-                        .rounding(Rounding::same(6.0))
-                        .min_size(Vec2::new(ui.available_width(), 36.0));
+                // Start/Stop button
+                ui.vertical_centered(|ui| {
+                    let (btn_label, btn_color) = if is_active {
+                        ("Stop", RED)
+                    } else {
+                        ("Start", GREEN)
+                    };
+                    let btn = Button::new(
+                        RichText::new(btn_label)
+                            .size(16.0)
+                            .strong()
+                            .color(Color32::WHITE),
+                    )
+                    .fill(btn_color.linear_multiply(0.8))
+                    .stroke(Stroke::NONE)
+                    .rounding(Rounding::same(6.0))
+                    .min_size(Vec2::new(ui.available_width(), 36.0));
 
-                        if ui.add(btn).clicked() {
-                            self.state.clicking.fetch_xor(true, Ordering::AcqRel);
-                        }
-                    });
-                }
+                    if ui.add(btn).clicked() {
+                        self.state.active.fetch_xor(true, Ordering::AcqRel);
+                    }
+                });
             });
 
         // Repaint continuously so status reflects hotkey changes promptly

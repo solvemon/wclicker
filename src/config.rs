@@ -7,14 +7,14 @@ use std::path::PathBuf;
 #[serde(rename_all = "lowercase")]
 pub enum ClickMode {
     #[default]
-    Toggle,
+    Auto,
     Hold,
 }
 
 impl ClickMode {
     pub fn as_u8(self) -> u8 {
         match self {
-            ClickMode::Toggle => 0,
+            ClickMode::Auto => 0,
             ClickMode::Hold => 1,
         }
     }
@@ -22,7 +22,7 @@ impl ClickMode {
     pub fn from_u8(v: u8) -> Self {
         match v {
             1 => ClickMode::Hold,
-            _ => ClickMode::Toggle,
+            _ => ClickMode::Auto,
         }
     }
 }

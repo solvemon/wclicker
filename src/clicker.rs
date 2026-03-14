@@ -1,14 +1,16 @@
+use crate::config::ClickMode;
+use crate::state::SharedState;
 use evdev::{uinput::VirtualDeviceBuilder, AttributeSet, BusType, EventType, InputEvent, InputId, Key};
 use std::{
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::Ordering,
         Arc,
     },
     thread,
     time::Duration,
 };
 
-pub fn run(clicking: Arc<AtomicBool>, delay_ms: Arc<AtomicU64>) {
+pub fn run(state: Arc<SharedState>) {
     let mut keys = AttributeSet::<Key>::new();
     keys.insert(Key::BTN_LEFT);
 
@@ -22,18 +24,33 @@ pub fn run(clicking: Arc<AtomicBool>, delay_ms: Arc<AtomicU64>) {
         .expect("failed to build virtual device");
 
     loop {
-        if clicking.load(Ordering::Acquire) {
-            let delay = Duration::from_millis(delay_ms.load(Ordering::Relaxed).max(1));
+        let active = state.active.load(Ordering::Acquire);
+        let mode = ClickMode::from_u8(state.mode.load(Ordering::Relaxed));
+        let should_click = active
+            && match mode {
+                ClickMode::Auto => true,
+                ClickMode::Hold => state.mouse_held.load(Ordering::Acquire),
+            };
+
+        if should_click {
+            let delay = Duration::from_millis(state.delay_ms.load(Ordering::Relaxed).max(1));
 
             // Press
             let press = InputEvent::new(EventType::KEY, Key::BTN_LEFT.code(), 1);
-            device.emit(&[press]).ok();
+            let p_res = device.emit(&[press]);
 
             thread::sleep(Duration::from_millis(1));
 
             // Release
             let release = InputEvent::new(EventType::KEY, Key::BTN_LEFT.code(), 0);
-            device.emit(&[release]).ok();
+            let r_res = device.emit(&[release]);
+
+            // Log first emit to confirm virtual device works
+            use std::sync::atomic::AtomicBool;
+            static LOGGED: AtomicBool = AtomicBool::new(false);
+            if !LOGGED.swap(true, Ordering::Relaxed) {
+                eprintln!("[clicker] emit press={p_res:?} release={r_res:?} mode={mode:?}");
+            }
 
             thread::sleep(delay);
         } else {

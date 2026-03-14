@@ -1,3 +1,5 @@
 /target
 docs/plans/
 .claude/
+.agents
+skills-lock.json
