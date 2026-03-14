@@ -1,12 +1,12 @@
 use crate::config::Config;
+use crate::state::SharedState;
 use egui::{
     Align, Button, Color32, FontId, Frame, Layout, Margin, RichText, Rounding, Stroke, TextEdit,
     Vec2,
 };
-use evdev::Key;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
-    Arc, Mutex,
+    atomic::Ordering,
+    Arc,
 };
 
 const ACCENT: Color32 = Color32::from_rgb(100, 160, 255);
@@ -16,34 +16,16 @@ const SURFACE: Color32 = Color32::from_rgb(35, 35, 42);
 const PANEL_BG: Color32 = Color32::from_rgb(28, 28, 34);
 
 pub struct WclickerApp {
-    // Shared state
-    clicking: Arc<AtomicBool>,
-    delay_ms: Arc<AtomicU64>,
-    hotkey: Arc<Mutex<Key>>,
-    rebinding: Arc<AtomicBool>,
-    new_key: Arc<Mutex<Option<Key>>>,
-
-    // Local UI state
+    state: Arc<SharedState>,
     missing_groups: Vec<String>,
     delay_input: String,
 }
 
 impl WclickerApp {
-    pub fn new(
-        clicking: Arc<AtomicBool>,
-        delay_ms: Arc<AtomicU64>,
-        hotkey: Arc<Mutex<Key>>,
-        rebinding: Arc<AtomicBool>,
-        new_key: Arc<Mutex<Option<Key>>>,
-        missing_groups: Vec<String>,
-    ) -> Self {
-        let delay = delay_ms.load(Ordering::Relaxed);
+    pub fn new(state: Arc<SharedState>, missing_groups: Vec<String>) -> Self {
+        let delay = state.delay_ms.load(Ordering::Relaxed);
         Self {
-            clicking,
-            delay_ms,
-            hotkey,
-            rebinding,
-            new_key,
+            state,
             missing_groups,
             delay_input: delay.to_string(),
         }
@@ -51,8 +33,9 @@ impl WclickerApp {
 
     fn save_config(&self) {
         let cfg = Config {
-            delay_ms: self.delay_ms.load(Ordering::Relaxed),
-            hotkey: self.hotkey.lock().unwrap().code(),
+            delay_ms: self.state.delay_ms.load(Ordering::Relaxed),
+            hotkey: self.state.hotkey.lock().unwrap().code(),
+            mode: Default::default(),
         };
         cfg.save();
     }
@@ -65,9 +48,9 @@ impl eframe::App for WclickerApp {
 
         // Check if a rebind completed
         {
-            let new_key = self.new_key.lock().unwrap().take();
+            let new_key = self.state.new_key.lock().unwrap().take();
             if let Some(key) = new_key {
-                *self.hotkey.lock().unwrap() = key;
+                *self.state.hotkey.lock().unwrap() = key;
                 self.save_config();
             }
         }
@@ -100,7 +83,7 @@ impl eframe::App for WclickerApp {
                 }
 
                 // --- Normal UI ---
-                let is_clicking = self.clicking.load(Ordering::Relaxed);
+                let is_clicking = self.state.clicking.load(Ordering::Relaxed);
 
                 // Status banner
                 let (status_color, status_text) = if is_clicking {
@@ -149,11 +132,11 @@ impl eframe::App for WclickerApp {
                                     .size(13.0),
                             );
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                let is_rebinding = self.rebinding.load(Ordering::Relaxed);
+                                let is_rebinding = self.state.rebinding.load(Ordering::Relaxed);
                                 let (label, color) = if is_rebinding {
                                     ("press a key...".to_string(), ACCENT)
                                 } else {
-                                    let hk = self.hotkey.lock().unwrap();
+                                    let hk = self.state.hotkey.lock().unwrap();
                                     (format!("{:?}", *hk), Color32::WHITE)
                                 };
                                 let btn = Button::new(
@@ -165,7 +148,7 @@ impl eframe::App for WclickerApp {
                                 .min_size(Vec2::new(100.0, 0.0));
 
                                 if ui.add(btn).clicked() && !is_rebinding {
-                                    self.rebinding.store(true, Ordering::Relaxed);
+                                    self.state.rebinding.store(true, Ordering::Relaxed);
                                 }
                             });
                         });
@@ -195,12 +178,12 @@ impl eframe::App for WclickerApp {
                                 if response.lost_focus() {
                                     if let Ok(v) = self.delay_input.parse::<u64>() {
                                         if v > 0 {
-                                            self.delay_ms.store(v, Ordering::Relaxed);
+                                            self.state.delay_ms.store(v, Ordering::Relaxed);
                                             self.save_config();
                                         }
                                     }
                                     self.delay_input =
-                                        self.delay_ms.load(Ordering::Relaxed).to_string();
+                                        self.state.delay_ms.load(Ordering::Relaxed).to_string();
                                 }
                             });
                         });
@@ -227,7 +210,7 @@ impl eframe::App for WclickerApp {
                     .min_size(Vec2::new(ui.available_width(), 36.0));
 
                     if ui.add(btn).clicked() {
-                        self.clicking.fetch_xor(true, Ordering::AcqRel);
+                        self.state.clicking.fetch_xor(true, Ordering::AcqRel);
                     }
                 });
             });

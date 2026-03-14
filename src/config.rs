@@ -3,10 +3,36 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ClickMode {
+    #[default]
+    Toggle,
+    Hold,
+}
+
+impl ClickMode {
+    pub fn as_u8(self) -> u8 {
+        match self {
+            ClickMode::Toggle => 0,
+            ClickMode::Hold => 1,
+        }
+    }
+
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            1 => ClickMode::Hold,
+            _ => ClickMode::Toggle,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     pub delay_ms: u64,
     pub hotkey: u16,
+    #[serde(default)]
+    pub mode: ClickMode,
 }
 
 impl Default for Config {
@@ -14,6 +40,7 @@ impl Default for Config {
         Self {
             delay_ms: 50,
             hotkey: Key::KEY_F8.code(),
+            mode: ClickMode::default(),
         }
     }
 }
