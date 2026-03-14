@@ -1,9 +1,11 @@
+use crate::config::ClickMode;
+use crate::state::SharedState;
 use evdev::{Device, EventType, Key};
 use std::{
     fs,
     sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        atomic::Ordering,
+        Arc,
     },
     thread,
 };
@@ -11,12 +13,7 @@ use std::{
 /// Scans all /dev/input/event* devices and spawns a listener thread for each
 /// that has keyboard capabilities. Each listener toggles `clicking` on the
 /// configured key press and optionally captures a rebind key.
-pub fn spawn_listeners(
-    clicking: Arc<AtomicBool>,
-    hotkey: Arc<Mutex<Key>>,
-    rebinding: Arc<AtomicBool>,
-    new_key: Arc<Mutex<Option<Key>>>,
-) {
+pub fn spawn_listeners(state: Arc<SharedState>) {
     let entries = fs::read_dir("/dev/input").unwrap_or_else(|_| {
         panic!("cannot read /dev/input — are you in the 'input' group?")
     });
@@ -38,22 +35,12 @@ pub fn spawn_listeners(
             continue;
         }
 
-        let clicking = Arc::clone(&clicking);
-        let hotkey = Arc::clone(&hotkey);
-        let rebinding = Arc::clone(&rebinding);
-        let new_key = Arc::clone(&new_key);
-
-        thread::spawn(move || listen(device, clicking, hotkey, rebinding, new_key));
+        let state = Arc::clone(&state);
+        thread::spawn(move || listen(device, state));
     }
 }
 
-fn listen(
-    mut device: Device,
-    clicking: Arc<AtomicBool>,
-    hotkey: Arc<Mutex<Key>>,
-    rebinding: Arc<AtomicBool>,
-    new_key: Arc<Mutex<Option<Key>>>,
-) {
+fn listen(mut device: Device, state: Arc<SharedState>) {
     loop {
         let events = match device.fetch_events() {
             Ok(e) => e,
@@ -64,24 +51,40 @@ fn listen(
             if event.event_type() != EventType::KEY {
                 continue;
             }
-            if event.value() != 1 {
-                // Only keydown (value=1), not repeat (2) or release (0)
+
+            let key = Key::new(event.code());
+            let value = event.value(); // 0=release, 1=press, 2=repeat
+
+            // Rebinding: capture on press, regardless of mode
+            if value == 1
+                && state
+                    .rebinding
+                    .compare_exchange(true, false, Ordering::AcqRel, Ordering::Relaxed)
+                    .is_ok()
+            {
+                let mut nk = state.new_key.lock().unwrap();
+                *nk = Some(key);
                 continue;
             }
 
-            let key = Key::new(event.code());
+            let hk = state.hotkey.lock().unwrap();
+            if key != *hk {
+                continue;
+            }
+            drop(hk);
 
-            if rebinding
-                .compare_exchange(true, false, Ordering::AcqRel, Ordering::Relaxed)
-                .is_ok()
-            {
-                let mut nk = new_key.lock().unwrap();
-                *nk = Some(key);
-            } else {
-                let hk = hotkey.lock().unwrap();
-                if key == *hk {
-                    clicking.fetch_xor(true, Ordering::AcqRel);
+            let mode = ClickMode::from_u8(state.mode.load(Ordering::Relaxed));
+            match mode {
+                ClickMode::Toggle => {
+                    if value == 1 {
+                        state.clicking.fetch_xor(true, Ordering::AcqRel);
+                    }
                 }
+                ClickMode::Hold => match value {
+                    1 => state.clicking.store(true, Ordering::Release),
+                    0 => state.clicking.store(false, Ordering::Release),
+                    _ => {}
+                },
             }
         }
     }
